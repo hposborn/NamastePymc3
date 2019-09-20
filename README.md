@@ -7,3 +7,6 @@ Here we simply provide a pre-written  ["exoplanet"](http://github.com/dfm/exopla
 
 See [Example.ipynb](https://github.com/hposborn/NamastePymc3/blob/master/Example.ipynb) for an example of how to use it.
 If that doesn't render, try [this nbviewer link](https://nbviewer.jupyter.org/github/hposborn/NamastePymc3/blob/master/Example.ipynb).
+
+
+![alt text](https://github.com/hposborn/NamastePymc3/blob/master/EPIC00248847494/EPIC00248847494_2019-09-06_0_TransitFit.png)
