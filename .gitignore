@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#Big data dumps:
+*.pickle
+
 # C extensions
 *.so
 
