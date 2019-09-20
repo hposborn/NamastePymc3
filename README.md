@@ -6,3 +6,4 @@ This uses a PyMC3/Theano back-end, a differentiable Keplerian orbital model, and
 Here we simply provide a pre-written  ["exoplanet"](http://github.com/dfm/exoplanet) model specific to single transits, and plot/analyse the results.
 
 See [Example.ipynb](https://github.com/hposborn/NamastePymc3/blob/master/Example.ipynb) for an example of how to use it.
+If that doesn't render, try [this nbviewer link](https://nbviewer.jupyter.org/github/hposborn/NamastePymc3/blob/master/Example.ipynb).
