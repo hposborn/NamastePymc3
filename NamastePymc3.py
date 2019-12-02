@@ -829,7 +829,7 @@ def Run(ID, initdepth, initt0, mission='TESS', stellardict=None,n_draws=1200,
         PlotLC(lc, trace, ID, mission=mission, savename=savename.replace('mcmc.pickle','TransitFit.png'), lcmask=lcmask,tracemask=tracemask)
         PlotCorner(trace, ID, mission=mission, savename=savename.replace('mcmc.pickle','corner.png'),tracemask=tracemask)
         
-    return {'model':model, 'trace':trace, 'light_curve':lc, 'P_gap_cuts':P_gap_cuts, 'tracemask':tracemask}
+    return {'model':model, 'trace':trace, 'light_curve':lc, 'lcmask':lcmask, 'P_gap_cuts':P_gap_cuts, 'tracemask':tracemask}
 
 def GetSavename(ID, mission, how='load', suffix='mcmc.pickle', overwrite=False, savefileloc=None):
     '''
