@@ -9,7 +9,6 @@ from astropy.io import fits
 from astropy.io import ascii
 from scipy.signal import savgol_filter
 
-from hpo import tesslib
 import pymc3 as pm
 import theano.tensor as tt
 import astropy.units as u
@@ -732,12 +731,33 @@ def Run(ID, initdepth, initt0, mission='TESS', stellardict=None,n_draws=1200,
     else:
         tracemask=None
     if doplots:
+        print("plotting")
         PlotLC(lc, trace, ID, mission=mission, savename=savename.replace('mcmc.pickle','TransitFit.png'), lcmask=lcmask,tracemask=tracemask)
         PlotCorner(trace, ID, mission=mission, savename=savename.replace('mcmc.pickle','corner.png'),tracemask=tracemask)
     restable=ToLatexTable(trace, ID, mission=mission, varnames=None,order='columns',
                           savename=savename.replace('mcmc.pickle','results.txt'), overwrite=False,
                           savefileloc=None, tracemask=tracemask)
+    imports()
     return {'model':model, 'trace':trace, 'light_curve':lc, 'lcmask':lcmask, 'P_gap_cuts':P_gap_cuts, 'tracemask':tracemask,'restable':restable}
+
+def imports():
+    # Getting all imported stuff
+    import sys
+    for module in sys.modules:
+        try:
+            print(module,'==',sys.modules[module].__version__)
+        except:
+            try:
+                if  type(modules[module].version) is str:
+                    print(module,'==',sys.modules[module].version)
+                else:
+                    print(module,'==',sys.modules[module].version())
+            except:
+                try:
+                    print(module,'==',sys.modules[module].VERSION)
+                except:
+                    pass
+
 
 def GetSavename(ID, mission, how='load', suffix='mcmc.pickle', overwrite=False, savefileloc=None):
     '''
@@ -912,7 +932,7 @@ def vals_to_latex(vals):
 def ToLatexTable(trace, ID, mission='TESS', varnames='all',order='columns',
                savename=None, overwrite=False, savefileloc=None, tracemask=None):
     #Plotting corner of the parameters to see correlations
-    
+    print("MakingLatexTable")
     if savename is None:
         savename=GetSavename(ID, mission, how='save', suffix='_table.txt',overwrite=False, savefileloc=savefileloc)
     if tracemask is None:
@@ -949,8 +969,7 @@ def ToLatexTable(trace, ID, mission='TESS', varnames='all',order='columns',
                 outstring+="\n"+row+" & "+vals_to_latex(np.percentile(samples[row],[16,50,84]))
     with open(savename,'w') as file_to_write:
         file_to_write.write(outstring)
-            
-        print("appending to file,",savename,"not yet supported")
+    #print("appending to file,",savename,"not yet supported")
     return outstring
 
 def PlotLC(lc, trace, ID, mission='TESS', savename=None,overwrite=False, savefileloc=None, 
@@ -961,7 +980,6 @@ def PlotLC(lc, trace, ID, mission='TESS', savename=None,overwrite=False, savefil
         tracemask=np.tile(True,len(trace['Rs']))
     
     import matplotlib.pyplot as plt
-    
     fig=plt.figure(figsize=(14,6))
     
     if lcmask is None:
