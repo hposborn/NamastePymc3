@@ -38,149 +38,21 @@ id_dic={'TESS':'TIC','tess':'TIC','Kepler':'KIC','kepler':'KIC','KEPLER':'KIC','
 
 #goto='/Users/hosborn' if 'Users' in os.path.dirname(os.path.realpath(__file__)).split('/') else '/home/hosborn'
 
-def ExoFop(kic):
-    if type(kic)==float: kic=int(kic)
-    import requests
-    try:
-        from StringIO import StringIO
-    except ImportError:
-        from io import StringIO
-    response=requests.get("https://exofop.ipac.caltech.edu/k2/download_target.php?id="+str(kic))
-    catfile=response.text
-    arr=catfile.split('\n\n')
-    arrs=pd.Series()
-    for n in range(1,len(arr)):
-        if n==1:
-            df=pd.read_fwf(StringIO(arr[1]),header=None,widths=[12,90]).T
-            df.columns = list(df.iloc[0])
-            df = df.ix[1]
-            df.name=kic
-            df=df.rename(index={'RA':'rastr','Dec':'decstr','Campaign':'campaign'})
-            arrs=arrs.append(df)
-        elif arr[n]!='' and arr[n][:5]=='MAGNI':
-            sps=pd.read_fwf(StringIO(arr[2]),header=1,index=None).T
-            sps.columns = list(sps.iloc[0])
-            sps = sps.ix[1:]
-            sps=sps.rename(columns={'B':'mag_b','V':'mag_v','r':'mag_r','Kep':'kepmag','u':'mag_u','z':'mag_z','i':'mag_i','J':'mag_j','K':'mag_k','H':'mag_h','WISE 3.4 micron':'mag_W1','WISE 4.6 micron':'mag_W2','WISE 12 micron':'mag_W3','WISE 22 micron':'mag_W4'})
-            newarr=pd.Series()
-            for cname in sps.columns:
-                newarr[cname]=sps.loc['Value',cname]
-                newarr[cname+'_err1']=sps.loc['Uncertainty',cname]
-                newarr[cname+'_err2']=sps.loc['Uncertainty',cname]
-            newarr.name=kic
-            arrs=arrs.append(newarr)
-        elif arr[n]!='' and arr[n][:5]=='STELL':
-            sps=pd.read_fwf(StringIO(arr[n]),header=1,index=None,widths=[17,14,19,19,22,20]).T
-            #print sps
-            sps.columns = list(sps.iloc[0])
-            sps = sps.ix[1:]
-            #print sps
-            newarr=pd.Series()
-            #print sps.columns
-            sps=sps.rename(columns={'Mass':'mass','log(g)':'logg','Log(g)':'logg','Radius':'radius','Teff':'teff','[Fe/H]':'feh','Sp Type':'spectral_type','Density':'dens'})
-            for n,i in enumerate(sps.iteritems()):
-                if i[1]["User"]=='huber':
-                    newarr[i[0]]=i[1]['Value']
-                    newarr[i[0]+'_err']=i[1]['Uncertainty']
-                elif i[1]["User"]!='macdougall' and i[0] not in sps.columns[:n]:
-                    #Assuming all non-Huber
-                    newarr[i[0]+'_spec']=i[1]['Value']
-                    newarr[i[0]+'_spec'+'_err']=i[1]['Uncertainty']
-            newarr.name=kic
-            #print newarr
-
-            arrs=arrs.append(newarr)
-
-            #print 'J' in arrs.index
-            #print 'WISE 3.4 micron' in arrs.index
-        elif arr[n]!='' and arr[n][:5]=='2MASS' and 'mag_J' not in arrs.index:
-            #print "SHOULDNT BE THIS FAR..."
-            sps=pd.read_fwf(StringIO(arr[n]),header=1)
-            #print sps.iloc[0]
-            sps=sps.iloc[0]
-            if 'rastr' not in arrs.index or 'decstr' not in arrs.index:
-                #Only keeping 2MASS RA/Dec if the ExoFop one is garbage/missing:
-                arrs['rastr']=sps.RA
-                arrs['decstr']=sps.Dec
-            elif arrs.rastr =='00:00:00' or arrs.decstr =='00:00:00':
-                arrs['rastr']=sps.RA
-                arrs['decstr']=sps.Dec
-            else:
-                sps.drop('RA',inplace=True)
-                sps.drop('Dec',inplace=True)
-            sps.drop('Pos Angle',inplace=True)
-            sps=sps.rename(index={'Designation':'Alias_2MASS','J mag':'mag_J','K mag':'mag_K','H mag':'mag_H','J err':'mag_J_err1','H err':'mag_H_err1','K err':'mag_K_err1','Distance':'2MASS_DIST'})
-            sps.name=kic
-            arrs=arrs.append(sps)
-        elif arr[n]!='' and arr[n][:5]=='WISE ' and 'mag_W1' not in arrs.index:
-            #print "SHOULDNT BE THIS FAR..."
-            sps=pd.read_fwf(StringIO(arr[n]),header=1,widths=[14,14,28,12,12,12,12,12,12,12,12,13,13])
-            #print sps.iloc[0]
-            sps= sps.iloc[0]
-            sps.drop('RA',inplace=True)
-            sps.drop('Dec',inplace=True)
-            sps.drop('Pos Angle',inplace=True)
-            #Band 1 mag  Band 1 err  Band 2 mag  Band 2 err  Band 3 mag  Band 3 err  Band 4 mag  Band 4 err
-            sps=sps.rename(index={'Designation':'Alias_WISE','Band 1 mag':'mag_W1','Band 1 err':'mag_W1_err1','Band 2 mag':'mag_W2','Band 2 err':'mag_W2_err1','Band 3 mag':'mag_W3','Band 3 err':'mag_W3_err1','Band 4 mag':'mag_W4','Band 4 err':'mag_W4_err1','Distance':'WISE_DIST'})
-            sps.name=kic
-            arrs=arrs.append(sps)
-    arrs['StarComment']='Stellar Data from ExoFop/K2 (Huber 2015)'
-    arrs.drop_duplicates(inplace=True)
-    arrs['id']=kic
-    if 'kepmag' not in arrs.index or type(arrs.kepmag) != float or arrs.rastr=='00:00:00':
-        extra=HuberCat3(kic)
-        if ('k2_kepmag' in extra.index)+('k2_kepmag' in extra.columns)*(arrs.rastr!='00:00:00'):
-            arrs['kepmag']=extra.k2_kepmag
-            arrs['kepmag_err1']=extra.k2_kepmagerr
-            arrs['kepmag_err2']=extra.k2_kepmagerr
-            arrs['StarComment']='Stellar Data from VJHK color temperature and main seq. assumption'
-        else:
-            #No Kepmag in either ExoFop or the EPIC. Trying the vanderburg file...
-            try:
-                ra,dec,mag=VandDL('91',kic,Namwd,v=1,returnradecmag=True)
-                coord=co.SkyCoord(ra,dec,unit=u.degree)
-                arrs['rastr']=coord.to_string('hmsdms',sep=':').split(' ')[0]
-                arrs['decstr']=coord.to_string('hmsdms',sep=':').split(' ')[1]
-                arrs['kepmag']=mag
-                arrs['StarComment']='Stellar Data from VJHK color temperature and main seq. assumption'
-            except:
-                print("no star dat")
-                return None
-    if 'rastr' in arrs.index and 'decstr' in arrs.index and ('teff' not in arrs.index):#+(type(arrs.teff)!=float)):
-        teff,tefferr=AstropyGuess2(arrs.rastr,arrs.decstr)
-        arrs['teff']=teff
-        arrs['teff_err1']=tefferr
-        arrs['teff_err2']=tefferr
-    if 'radius' not in arrs.index:
-        if 'logg' not in arrs.index:
-            T,R,M,l,spec=StellarNorm(arrs['teff'],'V')
-            arrs['logg']=l[1]
-            arrs['logg_err']=np.average(np.diff(l))
-            arrs['StarComment']=arrs['StarComment']+". Assuming Main sequence"
-        else:
-            T,R,M,l,spec=StellarNorm(arrs['teff'],arrs['logg'])
-            arrs['StarComment']=arrs['StarComment']+". Using Lum Class from logg"
-        arrs['radius']=R[1]
-        arrs['radius_err']=np.average(np.diff(R))
-        arrs['mass']=M[1]
-        arrs['mass_err']=np.average(np.diff(M))
-        arrs['spectral_type']=spec
-        arrs['StarComment']=arrs['StarComment']+" R,M,etc from Teff fitting"
-    return arrs
-
 def K2_lc(epic):
-    df=ExoFop(epic)
+    '''
+    # Opens K2 lc
+    '''
+    df,_=starpars.GetExoFop(epic,"k2")
     lcs=[]
-    print("K2 campaigns to search:",df.campaign)
-    for camp in df.campaign.split(','):
+    print("K2 campaigns to search:",df['campaign'])
+    for camp in df['campaign'].split(','):
         lcs+=[getK2lc(epic,camp)]
     lcs=lcStack(lcs)
     return lcs,df
 
-
 def getK2lc(epic,camp,saveloc=None):
     '''
-    Gets (or tries to get) all LCs from K2 sources
+    Gets (or tries to get) all LCs from K2 sources. Order is Everest > Vanderburg > PDC.
     '''
     from urllib.request import urlopen
     import everest
@@ -196,10 +68,13 @@ def getK2lc(epic,camp,saveloc=None):
                 lc=openPDC(epic,camp)
             except:
                 print("No LCs at all")
-    
     return lc
 
 def openFits(f,fname):
+    '''
+    # opens and processes all lightcurve files (especially, but not only, fits files).
+    # Processing involvesd iteratively masking anomlaous flux values
+    '''
     #print(type(f),"opening ",fname,fname.find('everest')!=-1,f[1].data,f[0].header['TELESCOP']=='Kepler')
     if type(f)==fits.hdu.hdulist.HDUList or type(f)==fits.fitsrec.FITS_rec:
         if f[0].header['TELESCOP']=='Kepler' or fname.find('kepler')!=-1:
@@ -260,25 +135,25 @@ def openFits(f,fname):
         #logging.debug('Found fits file but cannot identify fits type to identify with')
         return None
 
-    # Mask bad data
-    m = np.isfinite(lc['flux']) & np.isfinite(lc['time'])
+    # Mask bad data (nans, infs and negatives) 
+    lc['mask'] = np.isfinite(lc['flux']) & np.isfinite(lc['time']) & (lc['flux']>0.0) 
+    # Mask data if it's 4.2-sigma from its points either side (repeating at 7-sigma to get any points missed)
+    lc['mask'][lc['mask']]=CutAnomDiff(lc['flux'][lc['mask']],4.2)
+    lc['mask'][lc['mask']]=CutAnomDiff(lc['flux'][lc['mask']],7.0)
 
     # Convert to parts per thousand
-    x = lc['time'][m]
-    y = lc['flux'][m]
-    yerr = lc['flux_err'][m]
-    mu = np.median(y)
-    y = (y / mu - 1) * 1e3
-    yerr = (yerr / mu)*1e3
-    
+    mu = np.median(lc['flux'][lc['mask']])
+    lc['flux'] = (lc['flux'] / mu - 1) * 1e3
+    yerr = (lc['flux_err'] / mu)*1e3
     
     # Identify outliers
-    m2 = np.ones(len(y), dtype=bool)
+    m2 = lc['mask']
+    
     for i in range(10):
-        y_prime = np.interp(x, x[m2], y[m2])
+        y_prime = np.interp(lc['time'], lc['time'][m2], lc['flux'][m2])
         smooth = savgol_filter(y_prime, 101, polyorder=3)
-        resid = y - smooth
-        sigma = np.sqrt(np.mean(resid**2))
+        resid = lc['flux'] - smooth
+        sigma = np.sqrt(np.nanmean(resid**2))
         m0 = np.abs(resid) < 3*sigma
         if m2.sum() == m0.sum():
             m2 = m0
@@ -286,8 +161,8 @@ def openFits(f,fname):
         m2 = m0
 
     # Only discard positive outliers
-    m2 = resid < 3*sigma
-
+    lc['mask']*=(resid < 3*sigma)
+    '''
     # Make sure that the data type is consistent
     lc['time'] = np.ascontiguousarray(x[m2], dtype=np.float64)
     lc['flux'] = np.ascontiguousarray(y[m2], dtype=np.float64)
@@ -297,6 +172,7 @@ def openFits(f,fname):
     for key in lc:
         if key not in ['time','flux','flux_err','trend_rem']:
             lc[key]=np.ascontiguousarray(lc[key][m][m2], dtype=np.float64)
+    '''
     return lc
 
 def openPDC(epic,camp):
@@ -417,7 +293,10 @@ def CutAnomDiff(flux,thresh=4.2):
     #Must be nan-cut first
     diffarr=np.vstack((np.diff(flux[1:]),np.diff(flux[:-1])))
     diffarr/=np.median(abs(diffarr[0,:]))
-    anoms=np.hstack((True,((diffarr[0,:]*diffarr[1,:])>0)+(abs(diffarr[0,:])<thresh)+(abs(diffarr[1,:])<thresh),True))
+    #Adding a test for the first and last points if they are >3*thresh from median RMS wrt next two points.
+    anoms=np.hstack((abs(flux[0]-np.median(flux[1:3]))<(np.median(abs(diffarr[0,:]))*thresh*5),
+                     ((diffarr[0,:]*diffarr[1,:])>0)+(abs(diffarr[0,:])<thresh)+(abs(diffarr[1,:])<thresh),
+                     abs(flux[-1]-np.median(flux[-3:-1]))<(np.median(abs(diffarr[0,:]))*thresh*5)))
     return anoms
 
 def TESS_lc(tic,sector='all'):
@@ -477,9 +356,9 @@ def PeriodGaps(t,t0,dur=0.5):
     listgaps+=[np.max(dist_from_t0)]
     return np.hstack(listgaps)
 
-def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.array([4.3,1.0,1.0]),initdur=None, 
+def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, lcmask=None, logg=np.array([4.3,1.0,1.0]),initdur=None, 
                periods=None,per_index=-8/3,assume_circ=False,
-               use_GP=True,constrain_LD=True,ld_mult=3,
+               use_GP=True,constrain_LD=True,ld_mult=3,useL2=True,
                mission='TESS',FeH=0.0,LoadFromFile=False,cutDistance=0.0):
     # x - array of times
     # y - array of flux measurements
@@ -494,12 +373,14 @@ def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.arra
     # ld_mult - Multiplication factor on STD of limb darkening]
     # cutDistance - cut out points further than this from transit. Default of zero does no cutting
     
+    lcmask=np.tile(True,len(x)) if lcmask is None else lcmask
+    
     n_pl=len(initt0)
     
     print("Teff:",Teff)
     start=None
     with pm.Model() as model:
-
+        
         # We're gonna need a bounded normal:
         #BoundedNormal = pm.Bound(pm.Normal, lower=0, upper=3)
 
@@ -519,18 +400,29 @@ def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.arra
 
         # The baseline flux
         mean = pm.Normal("mean", mu=0.0, sd=1.0,testval=0.0)
+        
+        # The 2nd light (not third light as companion light is not modelled) 
+        # This quantity is in delta-mag
+        if useL2:
+            deltamag_contam = pm.Uniform("deltamag_contam", lower=-20.0, upper=20.0)
+            mult = pm.Deterministic("mult",(1+tt.power(2.511,-1*deltamag_contam))) #Factor to multiply normalised lightcurve by
+        else:
+            mult=1.0
+        
 
         # The time of a reference transit for each planet 
         t0 = pm.Normal("t0", mu=initt0, sd=1.0, shape=n_pl, testval=initt0)
         
         #Calculating minimum period:
         P_gap_cuts=[];pertestval=[]
+        print(initt0)
         for n,nt0 in enumerate(initt0):
             #Looping over all t0s - i.e. all planets
             if periods is None or np.isnan(periods[n]) or periods[n]==0.0:
-                dist_from_t0=np.sort(abs(nt0-x))
+                
+                dist_from_t0=np.sort(abs(nt0-x[lcmask]))
                 inputdur=0.5 if initdur is None or np.isnan(initdur[n]) or initdur[n]==0.0 else initdur[n]
-                P_gap_cuts+=[PeriodGaps(x,nt0,inputdur)]
+                P_gap_cuts+=[PeriodGaps(x[lcmask],nt0,inputdur)]
                 #Estimating init P using duration:
                 initvrel=(2*(1+np.sqrt(initdepth[n]))*np.sqrt(1-(0.41/(1+np.sqrt(initdepth[n])))**2))/inputdur
                 initper=18226*(rhostar[0]/1.408)/(initvrel**3)
@@ -542,19 +434,21 @@ def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.arra
             else:
                 P_gap_cuts+=[0.75*periods[n]]
                 pertestval+=[np.power(periods[n]/P_gap_cuts[n][0],per_index)]
-                
         
         #Cutting points for speed of computation:
-        m=np.tile(False,len(x))
+        speedmask=np.tile(False, len(x))
         for n,it0 in enumerate(initt0):
             if periods is not None and not np.isnan(periods[n]) and not periods[n]==0.0:
                 #For known periodic planets, need to keep many transits, so masking in the period space:
-                m[(((x-it0)%periods[n])<cutDistance)|(((x-it0)%periods[n])>(periods[n]-cutDistance))]=True
+                speedmask[(((x-it0)%periods[n])<cutDistance)|(((x-it0)%periods[n])>(periods[n]-cutDistance))]=True
             elif cutDistance>0.0:
-                m[abs(x-it0)<cutDistance]=True
+                speedmask[abs(x-it0)<cutDistance]=True
             else:
-                m=np.tile(True,len(x))
-            print(np.sum(~m),"points cut from lightcurve leaving",np.sum(m),"to process")
+                #No parts of the lc to cut
+                speedmask=np.tile(True,len(x))
+            print(np.sum(~speedmask),"points cut from lightcurve leaving",np.sum(speedmask),"to process")
+        totalmask=speedmask*lcmask
+        
         P_min=np.array([P_gap_cuts[n][0] for n in range(len(P_gap_cuts))]);pertestval=np.array(pertestval)
         print("Using minimum period(s) of:",P_min)
         
@@ -566,12 +460,20 @@ def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.arra
 
         # The Espinoza (2018) parameterization for the joint radius ratio and
         # impact parameter distribution
-        RpRs, b = xo.distributions.get_joint_radius_impact(
-            min_radius=0.001, max_radius=0.25,
-            testval_r=np.array(initdepth)**0.5,
-            testval_b=np.random.rand(n_pl)
-        )
-        
+        if useL2:
+            #EB case as second light needed:
+            RpRs, b = xo.distributions.get_joint_radius_impact(
+                min_radius=0.001, max_radius=1.25,
+                testval_r=np.array(initdepth)**0.5,
+                testval_b=np.random.rand(n_pl)
+            )
+        else:
+            RpRs, b = xo.distributions.get_joint_radius_impact(
+                min_radius=0.001, max_radius=0.25,
+                testval_r=np.array(initdepth)**0.5,
+                testval_b=np.random.rand(n_pl)
+            )
+
         r_pl = pm.Deterministic("r_pl", RpRs * Rs)
         
         if assume_circ:
@@ -616,20 +518,20 @@ def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.arra
         tt.printing.Print('u_star')(u_star)
         tt.printing.Print('r_pl')(r_pl)
         #tt.printing.Print('t0')(t0)
-        print(P_min,t0,x[m][:10],np.nanmedian(np.diff(x[m])))
+        print(P_min,t0,x[totalmask][:10],np.nanmedian(np.diff(x[totalmask])))
         # Compute the model light curve using starry
-        light_curves = xo.LimbDarkLightCurve(u_star).get_light_curve(orbit=orbit, r=r_pl,t=x[m])*1e3
-        light_curve = pm.math.sum(light_curves, axis=-1) + mean
+        light_curves = xo.LimbDarkLightCurve(u_star).get_light_curve(orbit=orbit, r=r_pl,t=x[totalmask])*1e3
+        light_curve = pm.math.sum(light_curves, axis=-1)
         pm.Deterministic("light_curves", light_curves)
         
         if use_GP:
             # Transit jitter & GP parameters
             #logs2 = pm.Normal("logs2", mu=np.log(np.var(y[m])), sd=10)
-            logs2 = pm.Uniform("logs2", upper=np.log(np.std(y[m]))+4,lower=np.log(np.std(y[m]))-4)
+            logs2 = pm.Uniform("logs2", upper=np.log(np.std(y[totalmask]))+4,lower=np.log(np.std(y[totalmask]))-4)
             
             logw0_guess = np.log(2*np.pi/10)
             cad=np.nanmedian(np.diff(x))#Limiting to <1 cadence
-            lcrange=x[-1]-x[0]
+            lcrange=x[totalmask][-1]-x[totalmask][0]
             
             #freqs bounded from 2pi/cadence to to 2pi/(4x lc length)
             logw0 = pm.Uniform("logw0",lower=np.log((2*np.pi)/(4*lcrange)), 
@@ -637,7 +539,7 @@ def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.arra
 
             # S_0 directly because this removes some of the degeneracies between
             # S_0 and omega_0 prior=(-0.25*lclen)*exp(logS0)
-            logpower = pm.Uniform("logpower",lower=-20,upper=np.log(np.nanmedian(abs(np.diff(y[m])))))
+            logpower = pm.Uniform("logpower",lower=-20,upper=np.log(np.nanmedian(abs(np.diff(y[totalmask])))))
             logS0 = pm.Deterministic("logS0", logpower - 4 * logw0)
             
             #timescale = pm.Bound(pm.Exponential, upper=(4*lcrange), lower=cad)("timescale",lam=1.0)
@@ -676,18 +578,18 @@ def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.arra
             
             # GP model for the light curve
             kernel = xo.gp.terms.SHOTerm(log_S0=logS0, log_w0=logw0, Q=1/np.sqrt(2))
-            gp = xo.gp.GP(kernel, x[m], tt.exp(logs2) + tt.zeros(np.sum(m)), J=2)
+            gp = xo.gp.GP(kernel, x[totalmask], tt.exp(logs2) + tt.zeros(np.sum(totalmask)), J=2)
 
             #pm.Potential("p_prior", tt.power(period)
 
-            llk_gp = pm.Potential("transit_obs", gp.log_likelihood(y[m] - light_curve))
+            llk_gp = pm.Potential("transit_obs", gp.log_likelihood(y[totalmask] - light_curve/mult))
             gp_pred = pm.Deterministic("gp_pred", gp.predict())
 
             #chisqs = pm.Deterministic("chisqs", (y - (gp_pred + tt.sum(light_curve,axis=-1)))**2/yerr**2)
             #avchisq = pm.Deterministic("avchisq", tt.sum(chisqs))
             #llk = pm.Deterministic("llk", model.logpt)
         else:
-            pm.Normal("obs", mu=light_curve, sd=yerr[m], observed=y[m])
+            pm.Normal("obs", mu=light_curve, sd=yerr[totalmask], observed=y[totalmask])
 
         # Fit for the maximum a posteriori parameters, I've found that I can get
         # a better solution by trying different combinations of parameters in turn
@@ -704,9 +606,9 @@ def init_model(x, y, yerr, initdepth, initt0, Rstar, rhostar, Teff, logg=np.arra
             
             print(model.check_test_point())
             
-            return model, map_soln, m, P_gap_cuts
+            return model, map_soln, totalmask, P_gap_cuts
         else:
-            return model, None, m, P_gap_cuts
+            return model, None, totalmask, P_gap_cuts
 
         # This shouldn't make a huge difference, but I like to put a uniform
         # prior on the *log* of the radius ratio instead of the value. This
@@ -753,6 +655,7 @@ def Run(ID, initdepth, initt0, mission='TESS', stellardict=None,n_draws=1200,
         lc={}
         for key in lc_nd.dtype.names:
             lc[key]=lc_nd[key]
+        lc['mask']=lc['mask'].astype(bool)
         hdr=pickle.load(open(savename.replace('_mcmc.pickle','_hdr.pickle'),'rb'))
         
     else:
@@ -767,7 +670,7 @@ def Run(ID, initdepth, initt0, mission='TESS', stellardict=None,n_draws=1200,
         pickle.dump(hdr, open(savename.replace('_mcmc.pickle','_hdr.pickle'),'wb'))
 
     if stellardict is None:
-        Rstar, rhostar, Teff, logg = starpars.getStellarInfo(ID, hdr, mission,
+        Rstar, rhostar, Teff, logg, src = starpars.getStellarInfo(ID, hdr, mission, overwrite=overwrite,
                                                              fileloc=savename.replace('_mcmc.pickle','_starpars.csv'),
                                                              savedf=True)
     else:
@@ -789,7 +692,9 @@ def Run(ID, initdepth, initt0, mission='TESS', stellardict=None,n_draws=1200,
             logg = np.array([stellardict['logg'],stellardict['logg_err'],stellardict['logg_err']])
     print("Initialising transit model")
     print(lc['time'],type(lc['time']),type(lc['time'][0]))
-    model, soln, lcmask, P_gap_cuts = init_model(lc['time'], lc['flux'], lc['flux_err'], initdepth, initt0, Rstar, rhostar, Teff, logg=logg,**kwargs)
+    model, soln, lcmask, P_gap_cuts = init_model(lc['time'], lc['flux'],lc['flux_err'],
+                                                 initdepth, initt0, Rstar, rhostar, Teff,
+                                                 lcmask=lc['mask'], logg=logg, **kwargs)
     #initdur=None,n_pl=1,periods=None,per_index=-8/3,
     #assume_circ=False,use_GP=True,constrain_LD=True,ld_mult=1.5,
     #mission='TESS',LoadFromFile=LoadFromFile,cutDistance=cutDistance)
@@ -797,18 +702,19 @@ def Run(ID, initdepth, initt0, mission='TESS', stellardict=None,n_draws=1200,
 
 
     #try:
-    if not LoadFromFile:
+    if LoadFromFile and not overwrite:
+        trace = LoadPickle(ID, mission, savename)
+    else:
+        trace=None
+   
+    if trace is None:
         #Running sampler:
         np.random.seed(int(ID))
         with model:
             trace = pm.sample(tune=int(n_draws*0.66), draws=n_draws, start=soln, chains=4,
                                   step=xo.get_dense_nuts_step(target_accept=0.9))
         SavePickle(trace, ID, mission, savename)
-    else:
-        trace = LoadPickle(ID, mission, savename)
-    #except:
-    #    print("problem with saving/loading")
-    
+            
     if do_per_gap_cuts:
         #Doing Cuts for Period gaps (i.e. where photometry rules out the periods of a planet)
         #Only taking MCMC positions in the trace where either:
@@ -828,8 +734,10 @@ def Run(ID, initdepth, initt0, mission='TESS', stellardict=None,n_draws=1200,
     if doplots:
         PlotLC(lc, trace, ID, mission=mission, savename=savename.replace('mcmc.pickle','TransitFit.png'), lcmask=lcmask,tracemask=tracemask)
         PlotCorner(trace, ID, mission=mission, savename=savename.replace('mcmc.pickle','corner.png'),tracemask=tracemask)
-        
-    return {'model':model, 'trace':trace, 'light_curve':lc, 'lcmask':lcmask, 'P_gap_cuts':P_gap_cuts, 'tracemask':tracemask}
+    restable=ToLatexTable(trace, ID, mission=mission, varnames=None,order='columns',
+                          savename=savename.replace('mcmc.pickle','results.txt'), overwrite=False,
+                          savefileloc=None, tracemask=tracemask)
+    return {'model':model, 'trace':trace, 'light_curve':lc, 'lcmask':lcmask, 'P_gap_cuts':P_gap_cuts, 'tracemask':tracemask,'restable':restable}
 
 def GetSavename(ID, mission, how='load', suffix='mcmc.pickle', overwrite=False, savefileloc=None):
     '''
@@ -865,10 +773,8 @@ def GetSavename(ID, mission, how='load', suffix='mcmc.pickle', overwrite=False, 
     elif how is 'load' and len(pickles)==1:
         date=pickles[0].split('_')[1]
         nsim=pickles[0].split('_')[2]
-        
-    elif how is 'load' and len(pickles)==0:
-        print("problem - trying to load but no files detected")
-    elif how is 'save':
+    else:
+        #Either pickles is empty (no file to load) or we want to save a fresh file:
         #Finding unique
         date=datetime.now().strftime("%Y-%m-%d")
         datepickles=glob.glob(os.path.join(savefileloc,id_dic[mission]+str(ID).zfill(11)+"_"+date+"_*_"+suffix))
@@ -887,18 +793,20 @@ def LoadPickle(ID, mission,loadname=None,savefileloc=None):
     #Pickle file style: folder/TIC[11-number ID]_[20YY-MM-DD]_[n]_mcmc.pickle
     if loadname is None:
         loadname=GetSavename(ID, mission, how='load', suffix='mcmc.pickle', savefileloc=savefileloc)
+    if os.path.exists(loadname):
+        n_bytes = 2**31
+        max_bytes = 2**31 - 1
 
-    n_bytes = 2**31
-    max_bytes = 2**31 - 1
-
-    ## read
-    bytes_in = bytearray(0)
-    input_size = os.path.getsize(loadname)
-    with open(loadname, 'rb') as f_in:
-        for _ in range(0, input_size, max_bytes):
-            bytes_in += f_in.read(max_bytes)
-    trace = pickle.loads(bytes_in)
-    return trace
+        ## read
+        bytes_in = bytearray(0)
+        input_size = os.path.getsize(loadname)
+        with open(loadname, 'rb') as f_in:
+            for _ in range(0, input_size, max_bytes):
+                bytes_in += f_in.read(max_bytes)
+        trace = pickle.loads(bytes_in)
+        return trace
+    else:
+        return None
 
 def SavePickle(trace,ID,mission,savename=None,overwrite=False,savefileloc=None):
     if savename is None:
@@ -912,65 +820,6 @@ def SavePickle(trace,ID,mission,savename=None,overwrite=False,savefileloc=None):
     with open(savename, 'wb') as f_out:
         for idx in range(0, len(bytes_out), max_bytes):
             f_out.write(bytes_out[idx:idx+max_bytes])
-
-def QueryNearbyGaia(sc,CONESIZE,file=None):
-    
-    job = Gaia.launch_job_async("SELECT * \
-    FROM gaiadr2.gaia_source \
-    WHERE CONTAINS(POINT('ICRS',gaiadr2.gaia_source.ra,gaiadr2.gaia_source.dec),\
-    CIRCLE('ICRS',"+str(sc.ra.deg)+","+str(sc.dec.deg)+","+str(CONESIZE/3600.0)+"))=1;" \
-    , dump_to_file=True,output_file=file)
-    
-    df=job.get_results().to_pandas()
-    '''
-    if df:
-        job = Gaia.launch_job_async("SELECT * \
-        FROM gaiadr1.gaia_source \
-        WHERE CONTAINS(POINT('ICRS',gaiadr1.gaia_source.ra,gaiadr1.gaia_source.dec),\
-        CIRCLE('ICRS',"+str(sc.ra.deg)+","+str(sc.dec.deg)+","+str(CONESIZE/3600.0)+"))=1;" \
-        , dump_to_file=True,output_file=file)
-    '''
-    print(np.shape(df))
-    if np.shape(df)[0]>1:
-        print(df.shape[0],"stars with mags:",df.phot_g_mean_mag.values,'and teffs:',df.teff_val.values)
-        #Taking brightest star as target
-        df=df.loc[np.argmin(df.phot_g_mean_mag)]
-    if len(np.shape(df))>1:
-        df=df.iloc[0]
-    if np.shape(df)[0]!=0 or np.isnan(float(df['teff_val'])):
-        outdf={}
-        #print(df[['teff_val','teff_percentile_upper','radius_val','radius_percentile_upper','lum_val','lum_percentile_upper']])
-        outdf['Teff']=float(df['teff_val'])
-        outdf['e_Teff']=0.5*(float(df['teff_percentile_upper'])-float(df['teff_percentile_lower']))
-        #print(np.shape(df))
-        #print(df['lum_val'])
-        if not np.isnan(df['lum_val']):
-            outdf['lum']=float(df['lum_val'])
-            outdf['e_lum']=0.5*(float(df['lum_percentile_upper'])-float(df['lum_percentile_lower']))
-        else:
-            if outdf['Teff']<9000:
-                outdf['lum']=np.power(10,5.6*np.log10(outdf['Teff']/5880))
-                outdf['e_lum']=1.0
-            else:
-                outdf['lum']=np.power(10,8.9*np.log10(outdf['Teff']/5880))
-                outdf['e_lum']=0.3*outdf['lum']
-        if not np.isnan(df['radius_val']):
-            outdf['rad']=float(df['radius_val'])
-            outdf['e_rad']=0.5*(float(df['radius_percentile_upper'])-float(df['radius_percentile_lower']))
-        else:
-            mass=outdf['lum']**(1/3.5)
-            if outdf['Teff']<9000:
-                outdf['rad']=mass**(3/7.)
-                outdf['e_rad']=0.5*outdf['rad']
-            else:
-                outdf['rad']=mass**(19/23.)
-                outdf['e_rad']=0.5*outdf['rad']
-        outdf['GAIAmag_api']=df['phot_g_mean_mag']
-    else:
-        print("NO GAIA TARGET FOUND")
-        outdf={}
-    return outdf
-
 
 def getLDs(Ts,logg=4.43812,FeH=0.0,mission="TESS"):
     from scipy.interpolate import CloughTocher2DInterpolator as ct2d
@@ -1060,18 +909,15 @@ def vals_to_latex(vals):
     except:
         return " - "
     
-def ToLatexTable(trace, ID, mission='TESS', varnames=None,order='columns',
-               savename=None, overwrite=False,savefileloc=None,returnfig=False,tracemask=None):
+def ToLatexTable(trace, ID, mission='TESS', varnames='all',order='columns',
+               savename=None, overwrite=False, savefileloc=None, tracemask=None):
     #Plotting corner of the parameters to see correlations
     
     if savename is None:
-        savename=GetSavename(ID, mission, how='save', suffix='_table.txt', 
-                             overwrite=overwrite, savefileloc=savefileloc)
-    
+        savename=GetSavename(ID, mission, how='save', suffix='_table.txt',overwrite=False, savefileloc=savefileloc)
     if tracemask is None:
         tracemask=np.tile(True,len(trace['Rs']))
-    
-    if varnames is None:
+    if varnames is None or varnames is 'all':
         varnames=[var for var in trace.varnames if var[-2:]!='__' and var not in ['gp_pred','light_curves']]
     
     samples = pm.trace_to_dataframe(trace, varnames=varnames)
@@ -1079,8 +925,8 @@ def ToLatexTable(trace, ID, mission='TESS', varnames=None,order='columns',
     facts={'r_pl':109.07637,'Ms':1.0,'rho':1.0,"t0":1.0,"period":1.0,"vrel":1.0,"tdur":24}
     units={'r_pl':"$ R_\\oplus $",'Ms':"$ M_\\odot $",'rho':"$ \\rho_\\odot $",
            "t0":"BJD-2458433","period":'d',"vrel":"$R_s/d$","tdur":"hours"}
-
     if order=="rows":
+        #Table has header as a single row and data as a single row 
         rowstring=str("ID")
         valstring=str(ID)
         for row in samples.columns:
@@ -1093,6 +939,7 @@ def ToLatexTable(trace, ID, mission='TESS', varnames=None,order='columns',
                 valstring+=' & '+vals_to_latex(np.percentile(samples[row],[16,50,84]))
         outstring=rowstring+"\n"+valstring
     else:
+        #Table has header as a single column and data as a single column 
         outstring="ID & "+str(ID)
         for row in samples.columns:
             fact=[fact for fact in list(facts.keys()) if fact in row]
@@ -1100,6 +947,10 @@ def ToLatexTable(trace, ID, mission='TESS', varnames=None,order='columns',
                 outstring+="\n"+row+' ['+units[fact[0]]+']'+" & "+vals_to_latex(np.percentile(facts[fact[0]]*samples[row],[16,50,84]))
             else:
                 outstring+="\n"+row+" & "+vals_to_latex(np.percentile(samples[row],[16,50,84]))
+    with open(savename,'w') as file_to_write:
+        file_to_write.write(outstring)
+            
+        print("appending to file,",savename,"not yet supported")
     return outstring
 
 def PlotLC(lc, trace, ID, mission='TESS', savename=None,overwrite=False, savefileloc=None, 
@@ -1116,6 +967,8 @@ def PlotLC(lc, trace, ID, mission='TESS', savename=None,overwrite=False, savefil
     if lcmask is None:
         assert len(lc['time'])==len(trace['gp_pred'][0,:])
         lcmask=np.tile(True,len(lc['time']))
+    else:
+        assert len(lc['time'][lcmask])==len(trace['gp_pred'][0,:])
     
     #Finding if there's a single enormous gap in the lightcurve:
     x_gap=np.max(np.diff(lc['time'][lcmask]))>10
@@ -1133,8 +986,11 @@ def PlotLC(lc, trace, ID, mission='TESS', savename=None,overwrite=False, savefil
     
     # Compute the GP prediction
     gp_mod = np.median(trace["gp_pred"][tracemask,:] + trace["mean"][tracemask, None], axis=0)
-        
-    pred = trace["light_curves"][tracemask,:,:]
+    
+    if 'mult' in trace.varnames:
+        pred = trace["light_curves"][tracemask,:,:]/trace["mult"]
+    else:
+        pred = trace["light_curves"][tracemask,:,:]
     #Need to check how many planets are here:
     pred = np.percentile(pred, [16, 50, 84], axis=0)
     
@@ -1229,19 +1085,19 @@ def PlotLC(lc, trace, ID, mission='TESS', savename=None,overwrite=False, savefil
         f_zoom=fig.add_subplot(gs[:3, 3])
         f_zoom_resid=fig.add_subplot(gs[3, 3])
     
-    tdurs=[]
     min_trans=0
     for n_pl in range(len(pred[1,0,:])):
         # Get the posterior median orbital parameters
         p = np.median(trace["period"][tracemask,n_pl])
         t0 = np.median(trace["t0"][tracemask,n_pl])
+        tdur = np.nanmedian(trace['tdur'][tracemask,n_pl])
         min_trans+=abs(1.25*np.min(pred[1,:,n_pl]))
         
-        tdurs+=[(2*np.sqrt(1-np.nanmedian(trace['b'][tracemask,n_pl])**2))/np.nanmedian(trace['vrel'][tracemask,n_pl])]
-        print(min_trans,tdurs[n_pl],2*np.sqrt(1-np.nanmedian(trace['b'][tracemask,n_pl])**2),np.nanmedian(trace['vrel'][tracemask, n_pl]))
+        #tdurs+=[(2*np.sqrt(1-np.nanmedian(trace['b'][tracemask,n_pl])**2))/np.nanmedian(trace['vrel'][tracemask,n_pl])]
+        #print(min_trans,tdurs[n_pl],2*np.sqrt(1-np.nanmedian(trace['b'][tracemask,n_pl])**2),np.nanmedian(trace['vrel'][tracemask, n_pl]))
         
         phase=(lc['time'][lcmask]-t0+p*0.5)%p-p*0.5
-        zoom_ind=abs(phase)<tdurs[n_pl]
+        zoom_ind=abs(phase)<tdur
         
         f_zoom.plot(phase[zoom_ind], min_trans+lc['flux'][lcmask][zoom_ind] - gp_mod[zoom_ind], ".k", label="data", zorder=-1000,alpha=0.5)
         f_zoom.plot(phase[zoom_ind], min_trans+pred[1,zoom_ind,n_pl], color="C1", label="model")
@@ -1252,11 +1108,11 @@ def PlotLC(lc, trace, ID, mission='TESS', savename=None,overwrite=False, savefil
 
     f_zoom_resid.plot(lc['time'][lcmask][zoom_ind]-t0, lc['flux'][lcmask][zoom_ind] - gp_mod[zoom_ind] - np.sum(pred[1,zoom_ind,:],axis=1), ".k", label="data", zorder=-1000,alpha=0.5)
     f_zoom_resid.set_xlabel('Time - t_c')
-    maxdur=np.max(np.array(tdurs))
-    f_zoom_resid.set_xlim(-1*maxdur,maxdur)
+
+    f_zoom_resid.set_xlim(-1*tdur,tdur)
 
     f_zoom.set_xticks([])
-    f_zoom.set_xlim(-1*maxdur,maxdur)
+    f_zoom.set_xlim(-1*tdur,tdur)
     
                                     
     if savename is None:

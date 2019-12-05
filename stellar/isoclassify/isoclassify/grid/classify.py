@@ -249,7 +249,7 @@ def classify(input, model, dustmodel=0, plot=1, useav=-99.0, ext=-99.0):
         model_mabs = model['vtmag']
         band = 'vt'
 
-    if (input.gamag > -99.0):
+    if hasattr(input,'gamag') and (input.gamag > -99.0):
         map = input.gamag
         mape = input.gamage
         model_mabs = model['gamag']   
@@ -374,7 +374,7 @@ def classify(input, model, dustmodel=0, plot=1, useav=-99.0, ext=-99.0):
         if (input.gmag > -99.0):
             mod_mabs = mod['gmag']
             
-        if (input.gamag > -99.0):
+        if hasattr(input,'gamag') and (input.gamag > -99.0):
             mod_mabs = mod['gamag']
 
         if (input.jmag > -99.0):

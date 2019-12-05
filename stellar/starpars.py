@@ -9,7 +9,7 @@ from astroquery.mast import Catalogs
 from astroquery.gaia import Gaia
 import requests
 import re
-from isoclassify.grid import classify
+from stellar.isoclassify import classify, pipeline
 import os
 import sys
 
@@ -176,7 +176,8 @@ def GetExoFop(icid,mission='tess',file=''):
           'TESS Error':'tmage', 'TIC Contamination Ratio':'ratio_contams', 'TOI':'toi', 'V':'vmag', 'V Error':'vmage',
           'WISE 12 micron':'w3mag', 'WISE 12 micron Error':'w3mage', 'WISE 22 micron':'w4mag',
           'WISE 22 micron Error':'w4mage', 'WISE 3.4 micron':'w1mag', 'WISE 3.4 micron Error':'w1mage',
-          'WISE 4.6 micron':'w2mag', 'WISE 4.6 micron Error':'w2mag', 'n_TOIs':'n_tois','spec':'spec'}
+          'WISE 4.6 micron':'w2mag', 'WISE 4.6 micron Error':'w2mag', 'n_TOIs':'n_tois','spec':'spec',
+          'Campaign':'campaign','Object Type':'objtype'}
     
     #Strips online file for a given epic/tic
     if mission.lower() in ['kep','kepler']:
@@ -354,7 +355,6 @@ def LoadModel():
     return model
 
 def LoadDust(sc,plx,dust='allsky'):
-    from isoclassify import pipeline
     import mwdust
     av=mwdust.SFD()(sc.galactic.l.deg,sc.galactic.b.deg,1000.0/plx)
     #sfdmap(sc.ra.deg.to_string(),sc.dec.deg.to_string())
@@ -391,6 +391,65 @@ def dens2(logg,loggerr1,loggerr2,rad,raderr1,raderr2,mass,masserr1,masserr2,nd=6
     else:
         dens=np.percentile(post,[16,50,84])
         return np.array([dens[1],np.diff(dens)[0],np.diff(dens)[1]])
+
+def QueryNearbyGaia(sc,CONESIZE,file=None):
+    
+    job = Gaia.launch_job_async("SELECT * \
+    FROM gaiadr2.gaia_source \
+    WHERE CONTAINS(POINT('ICRS',gaiadr2.gaia_source.ra,gaiadr2.gaia_source.dec),\
+    CIRCLE('ICRS',"+str(sc.ra.deg)+","+str(sc.dec.deg)+","+str(CONESIZE/3600.0)+"))=1;" \
+    , dump_to_file=True,output_file=file)
+    
+    df=job.get_results().to_pandas()
+    '''
+    if df:
+        job = Gaia.launch_job_async("SELECT * \
+        FROM gaiadr1.gaia_source \
+        WHERE CONTAINS(POINT('ICRS',gaiadr1.gaia_source.ra,gaiadr1.gaia_source.dec),\
+        CIRCLE('ICRS',"+str(sc.ra.deg)+","+str(sc.dec.deg)+","+str(CONESIZE/3600.0)+"))=1;" \
+        , dump_to_file=True,output_file=file)
+    '''
+    print(np.shape(df))
+    if np.shape(df)[0]>1:
+        print(df.shape[0],"stars with mags:",df.phot_g_mean_mag.values,'and teffs:',df.teff_val.values)
+        #Taking brightest star as target
+        df=df.loc[np.argmin(df.phot_g_mean_mag)]
+    if len(np.shape(df))>1:
+        df=df.iloc[0]
+    if np.shape(df)[0]!=0 or np.isnan(float(df['teff_val'])):
+        outdf={}
+        #print(df[['teff_val','teff_percentile_upper','radius_val','radius_percentile_upper','lum_val','lum_percentile_upper']])
+        outdf['Teff']=float(df['teff_val'])
+        outdf['e_Teff']=0.5*(float(df['teff_percentile_upper'])-float(df['teff_percentile_lower']))
+        #print(np.shape(df))
+        #print(df['lum_val'])
+        if not np.isnan(df['lum_val']):
+            outdf['lum']=float(df['lum_val'])
+            outdf['e_lum']=0.5*(float(df['lum_percentile_upper'])-float(df['lum_percentile_lower']))
+        else:
+            if outdf['Teff']<9000:
+                outdf['lum']=np.power(10,5.6*np.log10(outdf['Teff']/5880))
+                outdf['e_lum']=1.0
+            else:
+                outdf['lum']=np.power(10,8.9*np.log10(outdf['Teff']/5880))
+                outdf['e_lum']=0.3*outdf['lum']
+        if not np.isnan(df['radius_val']):
+            outdf['rad']=float(df['radius_val'])
+            outdf['e_rad']=0.5*(float(df['radius_percentile_upper'])-float(df['radius_percentile_lower']))
+        else:
+            mass=outdf['lum']**(1/3.5)
+            if outdf['Teff']<9000:
+                outdf['rad']=mass**(3/7.)
+                outdf['e_rad']=0.5*outdf['rad']
+            else:
+                outdf['rad']=mass**(19/23.)
+                outdf['e_rad']=0.5*outdf['rad']
+        outdf['GAIAmag_api']=df['phot_g_mean_mag']
+    else:
+        print("NO GAIA TARGET FOUND")
+        outdf={}
+    return outdf
+
 
 
 def CheckSpecCsv(radec,icid,thresh=20*u.arcsec):
@@ -553,7 +612,7 @@ def Assemble_and_run_isoclassify(icid,sc,mission,survey_dat,exofop_dat,errboost=
 
     dustmodel,ext = LoadDust(sc,survey_dat.parallax/1000.,dust='allsky')
 
-    paras = classify.classify(input=x, model=mod, dustmodel=dustmodel, useav=av, ext=ext, plot=1)
+    paras = classify.classify(input=x, model=mod, dustmodel=dustmodel, useav=av, ext=ext, plot=0)
 
     ############################################
     #       Assembling all output data:        #
@@ -568,9 +627,9 @@ def Assemble_and_run_isoclassify(icid,sc,mission,survey_dat,exofop_dat,errboost=
         exec('isoclass_df[\"'+c+'\"]=paras.'+c)
     #isoclass_df=isoclass_df.rename(index={'rho':'rho_gcm3','rhoep':'rho_gcm3ep','rhoem':'rho_gcm3em'})
     #After much posturing, I have determined that these output "rho"s are in rho_S and not gcm3, so adding gcm3 values here:
-    isoclass_df['rho_gcm3']=isoclass_df['rho_gcm3']*1.411
-    isoclass_df['rho_gcm3ep']=isoclass_df['rho_gcm3ep']*1.411
-    isoclass_df['rho_gcm3em']=isoclass_df['rho_gcm3em']*1.411
+    isoclass_df['rho_gcm3']=isoclass_df['rho']*1.411
+    isoclass_df['rho_gcm3ep']=isoclass_df['rhoep']*1.411
+    isoclass_df['rho_gcm3em']=isoclass_df['rhoem']*1.411
     return isoclass_df, paras
     
 def starpars(icid,mission,errboost=0.1,return_best=True,
@@ -599,6 +658,7 @@ def starpars(icid,mission,errboost=0.1,return_best=True,
     #In the case where we only get KIC info, we just call this "ExoFop" too:
     if exofop_dat is None and kicinfo is not None:
         exofop_dat=kicinfo
+        exofop_dat['mission']='kep_or_k2'
     
     ############################################
     #   Getting survey data from [Various]:    #
@@ -631,7 +691,7 @@ def starpars(icid,mission,errboost=0.1,return_best=True,
             exc_type, exc_obj, exc_tb = sys.exc_info()
             print(exc_type, exc_tb.tb_lineno)
             isoclass_df,paras=None,None
-        #    #print(n_kw_to_remove,'|',isoclass_df)
+            #print(n_kw_to_remove,'|',isoclass_df)
         n_kw_to_remove+=1
     #Assessing which available data source is the *best* using lowest density error
     if isoclass_df is not None:
@@ -786,30 +846,53 @@ def getStellarDensity(ID,mission,errboost=0.1):
         
     return rhos,rhos_iso
 
-def getStellarInfo(ID,hdr,mission,fileloc=None,savedf=True):
+def make_numeric(df):
+    outcol=pd.DataFrame()
+    for col in df.columns:
+        try:
+            outcol[col]=df[col].values.astype(float)
+        except:
+            outcol[col]=df[col].values
+    return outcol
+
+def getStellarInfo(ID,hdr,mission,overwrite=False,fileloc=None,savedf=True):
     #Compiling dfs (which may have spectra)
-    exofop_dat,survey_dat,isoclass_df,paras,best_stardf=starpars(ID,mission,errboost=0.1,
-                                                                 return_best=False,useGaiaLum=True,
-                                                                 useGaiaBR=True,useGaiaSpec=True,
-                                                                 useBV=True,use2mass=True,
-                                                                 useGriz=True,useGaiaAg=True)
-    if savedf and fileloc is not None:
-        exofop_dat.to_csv(fileloc.replace('.csv','_exofop.csv'))
-        survey_dat.to_csv(fileloc.replace('.csv','_survey.csv'))
-        isoclass_df.to_csv(fileloc.replace('.csv','_isoclass.csv'))
-        tic_df.to_csv(fileloc.replace('.csv','_tic.csv'))
+    if not overwrite and os.path.exists(fileloc.replace('.csv','_best.csv')):
+        print("Loading stellar params from file")
+        exofop_dat=make_numeric(pd.read_csv(fileloc.replace('.csv','_exofop.csv'), index_col=0,header=None).T)
+        survey_dat=make_numeric(pd.read_csv(fileloc.replace('.csv','_survey.csv'), index_col=0,header=None).T)
+        isoclass_df=make_numeric(pd.read_csv(fileloc.replace('.csv','_isoclass.csv'), index_col=0,header=None).T)
+        best_stardf=make_numeric(pd.read_csv(fileloc.replace(".csv","_best.csv"), index_col=0,header=None).T)
+    else:
+        exofop_dat,survey_dat,isoclass_df,paras,best_stardf=starpars(ID,mission,errboost=0.1,
+                                                                     return_best=False,useGaiaLum=True,
+                                                                     useGaiaBR=True,useGaiaSpec=True,
+                                                                     useBV=True,use2mass=True,
+                                                                     useGriz=True,useGaiaAg=True)
+        if savedf and fileloc is not None:
+            exofop_dat.to_csv(fileloc.replace('.csv','_exofop.csv'))
+            survey_dat.to_csv(fileloc.replace('.csv','_survey.csv'))
+            isoclass_df.to_csv(fileloc.replace('.csv','_isoclass.csv'))
+            best_stardf.to_csv(fileloc.replace('.csv','_best.csv'))
+            #tic_df.to_csv(fileloc.replace('.csv','_tic.csv'))
 
     #Taking brightest star if multiple:
-    if type(best_stardf)==pd.DataFrame and best_stardf.shape[1]>1:
+    if type(best_stardf)==pd.DataFrame and best_stardf.shape[0]>1:
+        print("stardf has shape:", best_stardf.shape)
         #Taking brightest star:
-        if mission[0] in ['t','T']:
-            best_stardf=beststardf.iloc[np.argmin(best_stardf.Tmag)]
+        if 'Tmag' in best_stardf.columns:
+            print(best_stardf.Tmag)
+            best_stardf=best_stardf.iloc[np.argmin(best_stardf.Tmag)]
+        elif 'kepmag' in best_stardf.columns:
+            print(best_stardf['kepmag'])
+            best_stardf=best_stardf.iloc[np.argmin(best_stardf['kepmag'])]
         else:
-            best_stardf=beststardf.iloc[np.argmin(best_stardf.kepmag)]
-    elif type(best_stardf)==pd.DataFrame and best_stardf.shape[1]==1:
+            print(best_stardf.columns)
+    elif type(best_stardf)==pd.DataFrame and best_stardf.shape[0]==1:
         #Pandas df -> Series
         best_stardf=best_stardf.iloc[0]
 
+    print(type(best_stardf),best_stardf.shape)
     #Sorting out missing data and getting important info - Mass, Radius, density and logg:
     if pd.isnull(best_stardf[['logg','mass']]).all() and ~np.isnan(best_stardf['lum']):
         if 'lume' not in best_stardf.index:
