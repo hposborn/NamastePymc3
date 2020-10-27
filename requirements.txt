@@ -13,7 +13,7 @@ certifi == 2019.09.11
 cffi == 1.12.3
 chardet == 3.0.4
 colorama == 0.4.1
-cryptography == 2.7
+cryptography == 3.2
 csv == 1.0
 ctypes == 1.1.0
 cycler == 0.10.0
