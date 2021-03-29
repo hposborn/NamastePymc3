@@ -53,7 +53,7 @@ progressbar == 3.47.0
 prompt_toolkit == 2.0.10
 psutil == 5.6.3
 ptyprocess == 0.6.0
-pygments == 2.4.2
+pygments == 2.7.4
 pymc3 == 3.7
 pyparsing == 2.4.2
 pysyzygy == 0.0.2
