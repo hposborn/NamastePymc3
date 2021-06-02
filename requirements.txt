@@ -75,7 +75,7 @@ tqdm._version == 4.36.1
 tqdm.cli == 4.36.1
 traitlets == 4.3.3
 urllib.request == 3.7
-urllib3 == 1.24.2
+urllib3 == 1.26.5
 webencodings == 0.5.1
 yaml == 5.1.2
 zlib == 1.0
