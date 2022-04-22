@@ -1,6 +1,6 @@
 OpenSSL == 19.0.0
 PIL == 6.2.0
-PyPDF2 == 1.26.0
+PyPDF2 == 1.27.5
 argparse == 1.1
 asciitable == 0.8.0
 asn1crypto == 1.0.1
