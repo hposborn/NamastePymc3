@@ -41,7 +41,7 @@ matplotlib == 3.1.1
 mkl == 2.3.0
 mkl_fft == 1.0.14
 numexpr == 2.7.0
-numpy == 1.17.2
+numpy == 1.22.0
 pandas == 0.25.1
 pandas._libs.json == 1.33
 parso == 0.5.1
