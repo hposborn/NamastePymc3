@@ -32,7 +32,7 @@ html5lib == 1.0.1
 idna == 2.8
 ipaddress == 1.0
 jedi == 0.15.1
-joblib == 0.13.2
+joblib == 1.2.0
 json == 2.0.9
 k2plr == 0.2.9
 kiwisolver == 1.1.0
